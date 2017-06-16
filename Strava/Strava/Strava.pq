@@ -1,13 +1,9 @@
 ﻿section Strava;
 
 //
-// OAuth configuration settings
-//
-// You MUST replace the values below for values for your own application.
-// Signin to Strava and navigate to https://www.strava.com/settings/api 
+// Make sure you have two files called client_id and client_secret in the root of your solution.
+// signin to Strava and navigate to https://www.strava.com/settings/api 
 // Follow the steps and obtain your client_id and client_secret.
-// Set your Redirect URI value in your application registration to match the value below.
-// Update the values within the "client_id" and "client_secret" files in the project.
 // 
 // Note: due to incompatibilities with the Internet Explorer control used in Visual Studio,
 // you will not be able to authorize a new Strava application during the OAuth flow. You can workaround
@@ -15,10 +11,17 @@
 // Once the application has been authorized for a given user, then the OAuth flow will work when 
 // run in Visual Studio.
 
+
+
 client_id = Text.FromBinary(Extension.Contents("client_id"));
 client_secret = Text.FromBinary(Extension.Contents("client_secret"));
 redirect_uri = "https://preview.powerbi.com/views/oauthredirect.html";
-activity_uri = "https://www.strava.com/api/v3/athlete/activities?per_page=200";
+//strava base URL
+API_uri = "https://www.strava.com/api/v3/";
+//Activy URL with amount of acitivies per page. Set to 200 (max)
+activity_uri = "athlete/activities?per_page=200";
+//Athlete URL.
+athlete_URI = "athlete";
 windowWidth = 1200;
 windowHeight = 1000;
 
@@ -31,12 +34,11 @@ windowHeight = 1000;
 // All data source functions associated to the same Data Source Kind must have a matching set of required 
 // function parameters, including type, name, and the order in which they appear. 
 
-[DataSource.Kind="Strava", Publish="Strava.UI"]
-shared Strava.Contents = Value.ReplaceType(StravaData.Contents, type function (url as Uri.Type) as any);
-
 [DataSource.Kind="Strava"]
-shared Strava.PagedTable = Value.ReplaceType(StravaData.PagedTable, type function (url as Uri.Type) as any);
+shared Strava.URL = Value.ReplaceType(StravaData.SingleResults, type function (url as Uri.Type) as any);
 
+[DataSource.Kind="Strava", Publish="Strava.UI"]
+shared Strava.Contents = Value.ReplaceType(StravaData.NavTable, type function (url as Uri.Type) as any);
 
 //
 // Data Source definition
@@ -62,28 +64,93 @@ Strava.UI = [
     SourceTypeImage = Strava.Icons
 ];
 
+
 Strava.Icons = [
     Icon16 = { Extension.Contents("Strava16.png"), Extension.Contents("Strava20.png"), Extension.Contents("Strava24.png"), Extension.Contents("Strava32.png") },
     Icon32 = { Extension.Contents("Strava32.png"), Extension.Contents("Strava40.png"), Extension.Contents("Strava48.png"), Extension.Contents("Strava64.png") }
 ];
 
-StravaData.Contents = (url as text) =>
+//
+// Nav table definition
+//
+//Define the NAV URL
+StravaData.NavTable = (url as text) as table =>
+    let
+        source = #table({"Name", "Data"}, {
+            { "Athlete", StravaData.Athlete(url) },
+            { "Activities", StravaData.Activities(url) }
+        }),
+        navTable = Table.ToNavigationTable(source, {"Name"}, "Name", "Data", "ItemKind", "ItemName", "IsLeaf")
+    in
+        navTable;
+
+//
+// Strava Function definition
+//
+//Do a single call and return a JSON document
+StravaData.SingleResults = (url as text) =>
     let
         content = Web.Contents(url),
-        link = GetNextLink(Value.Metadata(content)[Headers][#"Link"]?),
         json = Json.Document(content)
     in
-        json meta [Next=link];
+        json;
 
-StravaData.PagedTable = (url as text) => Table.GenerateByPage((previous) =>
+StravaData.Athlete = (url as text) =>
     let
-        next = if previous = null then null else Value.Metadata(previous)[Next],
-        current = if previous <> null and next = null then null else StravaData.Contents(if next = null then url else next),
-        link = if current = null then null else Value.Metadata(current)[Next],
-        table = if current = null then null else Table.FromList(current, Splitter.SplitByNothing(), null, null, ExtraValues.Error)
-    in
-        table meta [Next=link]);
+        content = StravaData.SingleResults(url & athlete_URI),
+        tableresult = Record.ToTable(content),
+        result = Table.Pivot(tableresult, List.Distinct(tableresult[Name]), "Name", "Value")
+in
+   result;
 
+//Get a page with activities with optional page number, if not supplied it just gets first page. 
+StravaData.ActivityResultWithPage = (url as text, optional pagenr as number) =>
+let
+    url = if pagenr = null then url & activity_uri else url & activity_uri &"&page=" & Text.From(pagenr),
+    content = StravaData.SingleResults(url)
+in
+    content;
+
+
+//Get the activities by URL
+ StravaData.Activities = (url as text) =>
+    let
+        //CALL the ActivityResultWithPage function 10 times. 
+        AddFunctionCall=List.Generate( () =>            //start the loop
+                            [Page Number=0,Func=null]   //Start values
+                            , each _[Page Number] < 10  //Condition to stop the loop
+                            , each [Page Number=_[Page Number]+1   //increment the nr
+                            ,    Func=StravaData.ActivityResultWithPage(url,[Page Number]+1)]  //execute the page
+                            , each _[Func]), //gather the resultset
+        //Make it into a table.
+        ConvertToTable = Table.FromList(AddFunctionCall, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+        #"Expanded" = Table.ExpandListColumn(ConvertToTable, "Column1"),
+        //Get rid of the first empty row generated by the for loop
+        RemoveDemiRow = Table.Skip(#"Expanded" ,1),
+        //Start transformations into a nice table
+        #"Expanded Column1" = Table.ExpandRecordColumn(RemoveDemiRow, "Column1", {"id", "resource_state", "external_id", "upload_id", "athlete", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain", "type", "start_date", "start_date_local", "timezone", "utc_offset", "start_latlng", "end_latlng", "location_city", "location_state", "location_country", "start_latitude", "start_longitude", "achievement_count", "kudos_count", "comment_count", "athlete_count", "photo_count", "map", "trainer", "commute", "manual", "private", "flagged", "gear_id", "average_speed", "max_speed", "average_cadence", "average_temp", "average_watts", "kilojoules", "device_watts", "has_heartrate", "average_heartrate", "max_heartrate", "elev_high", "elev_low", "pr_count", "total_photo_count", "has_kudoed", "workout_type", "weighted_average_watts", "max_watts"}, {"id", "resource_state", "external_id", "upload_id", "athlete", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain", "type", "start_date", "start_date_local", "timezone", "utc_offset", "start_latlng", "end_latlng", "location_city", "location_state", "location_country", "start_latitude", "start_longitude", "achievement_count", "kudos_count", "comment_count", "athlete_count", "photo_count", "map", "trainer", "commute", "manual", "private", "flagged", "gear_id", "average_speed", "max_speed", "average_cadence", "average_temp", "average_watts", "kilojoules", "device_watts", "has_heartrate", "average_heartrate", "max_heartrate", "elev_high", "elev_low", "pr_count", "total_photo_count", "has_kudoed", "workout_type", "weighted_average_watts", "max_watts"}),
+        #"Removed Columns" = Table.RemoveColumns(#"Expanded Column1",{"id", "resource_state", "upload_id", "athlete", "start_latlng", "end_latlng", "location_city", "location_state", "photo_count", "map", "total_photo_count", "external_id"}),
+        #"Changed Type" = Table.TransformColumnTypes(#"Removed Columns",{{"total_elevation_gain", Int64.Type}, {"elapsed_time", Int64.Type}, {"moving_time", Int64.Type}, {"distance", type number}}),
+        #"Renamed Columns" = Table.RenameColumns(#"Changed Type",{{"start_date", "start_datetime"}}),
+        #"Duplicated Column" = Table.DuplicateColumn(#"Renamed Columns", "start_datetime", "start_datetime - Copy"),
+        #"Changed Type1" = Table.TransformColumnTypes(#"Duplicated Column",{{"start_datetime - Copy", type datetime}}),
+        #"Extracted Date" = Table.TransformColumns(#"Changed Type1",{{"start_datetime - Copy", DateTime.Date}}),
+        #"Renamed Columns1" = Table.RenameColumns(#"Extracted Date",{{"start_datetime - Copy", "start_date"}}),
+        #"Reordered Columns" = Table.ReorderColumns(#"Renamed Columns1",{"name", "distance", "moving_time", "elapsed_time", "total_elevation_gain", "type", "start_datetime", "start_date", "start_date_local", "timezone", "utc_offset", "location_country", "start_latitude", "start_longitude", "achievement_count", "kudos_count", "comment_count", "athlete_count", "trainer", "commute", "manual", "private", "flagged", "gear_id", "average_speed", "max_speed", "average_cadence", "average_temp", "average_watts", "kilojoules", "device_watts", "has_heartrate", "average_heartrate", "max_heartrate", "elev_high", "elev_low", "pr_count", "has_kudoed", "workout_type", "weighted_average_watts", "max_watts"}),
+        #"Removed Columns1" = Table.RemoveColumns(#"Reordered Columns",{"start_date_local", "timezone", "utc_offset"}),
+        #"Changed Type2" = Table.TransformColumnTypes(#"Removed Columns1",{{"start_latitude", type number}, {"start_longitude", type number}, {"achievement_count", Int64.Type}, {"kudos_count", Int64.Type}, {"comment_count", Int64.Type}, {"athlete_count", Int64.Type}, {"trainer", type logical}, {"commute", type logical}, {"manual", type logical}, {"private", type logical}, {"flagged", type logical}, {"average_speed", type number}, {"max_speed", type number}, {"average_cadence", type number}, {"average_temp", type number}, {"average_watts", type number}, {"kilojoules", type number}, {"device_watts", type logical}, {"has_heartrate", type logical}, {"average_heartrate", type number}, {"max_heartrate", Int64.Type}, {"elev_high", type number}, {"elev_low", type number}, {"pr_count", Int64.Type}}),
+        #"Removed Columns2" = Table.RemoveColumns(#"Changed Type2",{"workout_type"}),
+        #"Changed Type3" = Table.TransformColumnTypes(#"Removed Columns2",{{"has_kudoed", type logical}, {"weighted_average_watts", Int64.Type}, {"max_watts", Int64.Type}}),
+        #"Changed Typedt" = Table.TransformColumnTypes(#"Changed Type3",{{"start_datetime", type datetime}}),
+        #"Changed Type1t" = Table.TransformColumnTypes(#"Changed Typedt",{{"start_datetime", type time}}),
+        #"Duplicated Column2" = Table.RenameColumns(#"Changed Type1t", {{"start_datetime", "start_time"}}),
+        #"Removed Blank Rows" = Table.SelectRows(#"Duplicated Column2", each not List.IsEmpty(List.RemoveMatchingItems(Record.FieldValues(_), {"", null})))
+in
+   #"Removed Blank Rows";
+
+//
+// Authentication functions
+//
 StartLogin = (resourceUrl, state, display) =>
     let
         AuthorizeUrl = "https://www.strava.com/oauth/authorize?" & Uri.BuildQueryString([
@@ -120,30 +187,28 @@ TokenMethod = (code) =>
     in
         Parts;
 
-Table.GenerateByPage = (getNextPage as function) as table =>
+//
+// Helper functions
+//
+ Table.ToNavigationTable = (
+    table as table,
+    keyColumns as list,
+    nameColumn as text,
+    dataColumn as text,
+    itemKindColumn as text,
+    itemNameColumn as text,
+    isLeafColumn as text
+) as table =>
     let
-        listOfPages = List.Generate(
-            () => getNextPage(null),
-            (lastPage) => lastPage <> null,
-            (lastPage) => getNextPage(lastPage)
-        ),
-        tableOfPages = Table.FromList(listOfPages, Splitter.SplitByNothing(), {"Column1"}),
-        firstRow = tableOfPages{0}?
+        tableType = Value.Type(table),
+        newTableType = Type.AddTableKey(tableType, keyColumns, true) meta 
+        [
+            NavigationTable.NameColumn = nameColumn, 
+            NavigationTable.DataColumn = dataColumn,
+            NavigationTable.ItemKindColumn = itemKindColumn, 
+            Preview.DelayColumn = itemNameColumn, 
+            NavigationTable.IsLeafColumn = isLeafColumn
+        ],
+        navigationTable = Value.ReplaceType(table, newTableType)
     in
-        if (firstRow = null) then
-            Table.FromRows({})
-        else
-            Value.ReplaceType(
-                Table.ExpandTableColumn(tableOfPages, "Column1", Table.ColumnNames(firstRow[Column1])),
-                Value.Type(firstRow[Column1])
-            );
-
-GetNextLink = (link) =>
-    let
-        links = Text.Split(link, ","),
-        splitLinks = List.Transform(links, each Text.Split(Text.Trim(_), ";")),
-        next = List.Select(splitLinks, each Text.Trim(_{1}) = "rel=""next"""),
-        first = List.First(next),
-        removedBrackets = Text.Range(first{0}, 1, Text.Length(first{0}) - 2)
-    in
-        try removedBrackets otherwise null;
+        navigationTable;
