@@ -66,12 +66,12 @@
     <Compile Include="resources.resx">
       <SubType>Code</SubType>
     </Compile>
-    <Content Include="client_id">
+    <Compile Include="client_id">
       <SubType>Content</SubType>
-    </Content>
-    <Content Include="client_secret">
+    </Compile>
+    <Compile Include="client_secret">
       <SubType>Content</SubType>
-    </Content>
+    </Compile>
     <Content Include="Strava.query.pq">
       <SubType>Code</SubType>
     </Content>
