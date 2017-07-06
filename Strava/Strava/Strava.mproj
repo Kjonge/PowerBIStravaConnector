@@ -72,6 +72,9 @@
     <Compile Include="client_secret">
       <SubType>Content</SubType>
     </Compile>
+    <Content Include="README.md">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Strava.query.pq">
       <SubType>Code</SubType>
     </Content>
