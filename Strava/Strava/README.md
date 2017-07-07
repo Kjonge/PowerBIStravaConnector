@@ -1,7 +1,7 @@
-# Strava Connector Sample
-The Strava M extension shows how to add support for an OAuth 2.0 protocol authentication flow. You can learn more about the specifics for Strava's authentication flow on the [Strava Developer site](http://strava.github.io/api/v3/oauth/).
+# Strava Connector
+The Strava M extension allows you to connect to Strava and retrieve your activities and athlete information for analytics.
 
-Before you get started creating an M extension, you need to register a new app on Strava, and replace the `client_id` and `client_secret` files with the appropriate values for you app.
+Before you get started using the M extension, you need to register a new app on Strava, and add two files `client_id` and `client_secret` to the project and add them with the appropriate values for you app.
 
 **Note about compatibility issues in Visual Studio:** _The Power Query SDK uses an Internet Explorer based control to popup OAuth dialogs. Strava has deprecated its support for the version of IE used by this control, which will prevent you from completing the permission grant for you app if run from within Visual Studio. An alternative is to load the extension with Power BI  Desktop and complete the first OAuth flow there. After your application has been granted access to your account, subsequent logins will work fine from Visual Studio._
 
@@ -20,15 +20,15 @@ Your Power BI extension needs to login to Strava. To enable this, you register a
 1. `Application name`: Enter a name for the application for your M extension.  
 2. `Authorization callback Domain`: Enter oauth.powerbi.com.   
 **Note:** A registered OAuth application is assigned a unique Client ID and Client Secret. The Client Secret should not be shared. You get the Client ID and Client Secret from the Strava application page.
-Update the files in your Data Connector project with the Client ID (`client_id` file) and Client Secret (`client_secret` file).
+3 Add 2 files `client_id` and `client_secret` to the project in your Data Connector project with the Client ID (`client_id` file) and Client Secret (`client_secret` file).
 
-## How to implement Strava OAuth
-This sample will walk you through the following steps:
+## implementing Strava OAuth
+This code will walk you through the following steps:
 
 1. Create a Data Source Kind definition that declares it supports OAuth
 2. Provide details so the M engine can start the OAuth flow (`StartLogin`)
 3. Convert the code received from Strava into an access_token (`FinishLogin` and `TokenMethod`)
-4. Define functions that access the Strava API (`StravaSample.Contents`)
+4. Define functions that access the Strava API (`StravaData.GetObject`)
 
 ### Step 1 – Create a Data Source definition
 A Data Connector starts with a [record](https://msdn.microsoft.com/en-us/library/mt299038.aspx#record) that describes the extension, including its unique name (which is the name of the record), supported authentication type(s), and a friendly display name (label) for the data source.
@@ -38,7 +38,6 @@ When supporting OAuth, the definition contains the functions that implement the 
 //
 // Data Source definition
 //
-StravaSample = [
     Authentication = [
         OAuth = [
             StartLogin = StartLogin,

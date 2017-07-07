@@ -63,6 +63,8 @@ Strava.Icons = [
     Icon32 = { Extension.Contents("Strava32.png"), Extension.Contents("Strava40.png"), Extension.Contents("Strava48.png"), Extension.Contents("Strava64.png") }
 ];
 
+//For the navigation tables see this example: https://github.com/Microsoft/DataConnectors/tree/master/samples/TripPin/3-NavTables 
+
 //
 // Nav table definition
 //
@@ -93,45 +95,9 @@ StravaData.NavTable = () as table =>
     in
         navTable;
 
-// Add a helper function that can be used to retrieve strava API objects 
-// that we haven't exposed in the navigation table. We always take a relative path,
-// and append it to the base Strava API URL.
-// Note: Taking in a full path is a security issue, as it could potentially leak 
-// the bearer token to the url specified in the function parameter. 
-StravaData.GetObject = (relativeUrl as text, contentType as text) => StravaData.PagedReader(api_uri & relativeUrl, contentType);
+//Functions to parse Strava data
 
-// Read a single page of data.
-// If we get back an empty list, it means we are out of pages and should return null.
-StravaData.Page = (url as text, page as number, contentType as text) as nullable table =>
-    let
-        queryOptions = [
-            page = Number.ToText(page),
-            page_size = Text.From(page_size)
-        ],
-        content = Web.Contents(url, [ Query = queryOptions ]),
-        json = Json.Document(content),
-
-        // Responses from the API will either be a single record, or list of records.
-        // When we have a single record, we want to format it as a table. Set NextPage to null.
-        // When we have a list of records, we convert to a table. Set NextPage to page + 1.
-        // When we have an empty list of records, we return null. 
-        result =
-            if (json is list) then
-                if (List.IsEmpty(json)) then 
-                    null
-                else
-                    if(contentType = "Activities") then
-                        StravaData.Activities(json) meta [NextPage = page + 1]
-                    else
-                        StravaData.Athlete(json) meta [NextPage = page + 1]
-            else
-                Table.FromRecords({json}) meta [NextPage = null] // turn single record into one item list
-    in
-        result;
-
-
-
-//Get the activities by URL
+//Parse the activities by json
  StravaData.Activities = (json) =>
     let
         ConvertToTable = Table.FromList(json, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
@@ -155,6 +121,8 @@ StravaData.Page = (url as text, page as number, contentType as text) as nullable
 in
     #"Removed Blank Rows";
 
+
+//Parse the Athlete by json
 StravaData.Athlete = (json) =>
     let
          ConvertToTable = Table.FromList(json, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
@@ -162,6 +130,47 @@ StravaData.Athlete = (json) =>
         result = Table.Pivot(tableresult, List.Distinct(tableresult[Name]), "Name", "Value")
 in
    result;
+
+//All of the paging is based off the Tripin Sample https://github.com/Microsoft/DataConnectors/tree/master/samples/TripPin/5-Paging 
+
+// Add a helper function that can be used to retrieve strava API objects 
+// that we haven't exposed in the navigation table. We always take a relative path,
+// and append it to the base Strava API URL.
+// Note: Taking in a full path is a security issue, as it could potentially leak 
+// the bearer token to the url specified in the function parameter. 
+// For Strava I added an additional parameter to determine the type of content so we can parse this differently later
+StravaData.GetObject = (relativeUrl as text, contentType as text) => StravaData.PagedReader(api_uri & relativeUrl, contentType);
+
+// Read a single page of data.
+// If we get back an empty list, it means we are out of pages and should return null.
+// For Strava I added an additional parameter to determine the type of content so we can parse this differently later
+StravaData.Page = (url as text, page as number, contentType as text) as nullable table =>
+    let
+        queryOptions = [
+            page = Number.ToText(page),
+            page_size = Text.From(page_size)
+        ],
+        content = Web.Contents(url, [ Query = queryOptions ]),
+        json = Json.Document(content),
+
+        // Responses from the API will either be a single record, or list of records.
+        // When we have a single record, we want to format it as a table. Set NextPage to null.
+        // When we have a list of records, we convert to a table. Set NextPage to page + 1.
+        // When we have an empty list of records, we return null. 
+        result =
+            if (json is list) then
+                if (List.IsEmpty(json)) then 
+                    null
+                else //Determine how to parse the JSON based on the type of content.
+                    if(contentType = "Activities") then
+                        StravaData.Activities(json) meta [NextPage = page + 1]
+                    else
+                        StravaData.Athlete(json) meta [NextPage = page + 1]
+            else
+                Table.FromRecords({json}) meta [NextPage = null] // turn single record into one item list
+    in
+        result;
+
 
 // Read all pages of data.
 // After every page, we check the "NextPage" record on the metadata of the previous request.
@@ -197,6 +206,8 @@ AddNavTableFunctions = (functions as list) as table =>
         navigationTable = Value.ReplaceType(withIsLeaf, newTableType)
     in
         navigationTable;
+
+//For authentication I used: https://github.com/Microsoft/DataConnectors/tree/master/samples/Github
 
 //
 // Authentication functions
