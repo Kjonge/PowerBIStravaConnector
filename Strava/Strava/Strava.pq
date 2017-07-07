@@ -16,7 +16,7 @@ api_uri = "https://www.strava.com/api/v3/";
 activity_uri = "athlete/activities";
 athlete_uri = "athlete";
 
-// default page size
+// default page size, using the MAX page size to limit the amount of calls to the API
 page_size = 200;
 
 windowWidth = 1200;
