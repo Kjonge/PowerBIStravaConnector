@@ -15,6 +15,7 @@ api_uri = "https://www.strava.com/api/v3/";
 
 activity_uri = "athlete/activities";
 athlete_uri = "athlete";
+gear_uri = "gear";
 
 // default page size, using the MAX page size to limit the amount of calls to the API
 page_size = 200;
@@ -73,7 +74,8 @@ StravaData.NavTable = () as table =>
     let
         source = #table({"Name", "Data"}, {
             { "Athlete", StravaData.GetObject(athlete_uri,"Athlete")},
-            { "Activities", StravaData.GetObject(activity_uri,"Activities") }
+            { "Activities", StravaData.GetObject(activity_uri,"Activities") },
+			{ "Gear", StravaData.Gear}
         }),
 
         // add other columns
@@ -102,7 +104,7 @@ StravaData.NavTable = () as table =>
     let
         ConvertToTable = Table.FromList(json, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
         #"Expanded Column1" = Table.ExpandRecordColumn( ConvertToTable, "Column1", {"id", "resource_state", "external_id", "upload_id", "athlete", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain", "type", "start_date", "start_date_local", "timezone", "utc_offset", "start_latlng", "end_latlng", "location_city", "location_state", "location_country", "start_latitude", "start_longitude", "achievement_count", "kudos_count", "comment_count", "athlete_count", "photo_count", "map", "trainer", "commute", "manual", "private", "flagged", "gear_id", "average_speed", "max_speed", "average_cadence", "average_temp", "average_watts", "kilojoules", "device_watts", "has_heartrate", "average_heartrate", "max_heartrate", "elev_high", "elev_low", "pr_count", "total_photo_count", "has_kudoed", "workout_type", "weighted_average_watts", "max_watts"}, {"id", "resource_state", "external_id", "upload_id", "athlete", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain", "type", "start_date", "start_date_local", "timezone", "utc_offset", "start_latlng", "end_latlng", "location_city", "location_state", "location_country", "start_latitude", "start_longitude", "achievement_count", "kudos_count", "comment_count", "athlete_count", "photo_count", "map", "trainer", "commute", "manual", "private", "flagged", "gear_id", "average_speed", "max_speed", "average_cadence", "average_temp", "average_watts", "kilojoules", "device_watts", "has_heartrate", "average_heartrate", "max_heartrate", "elev_high", "elev_low", "pr_count", "total_photo_count", "has_kudoed", "workout_type", "weighted_average_watts", "max_watts"}),
-        #"Removed Columns" = Table.RemoveColumns(#"Expanded Column1",{"id", "resource_state", "upload_id", "athlete", "start_latlng", "end_latlng", "location_city", "location_state", "photo_count", "map", "total_photo_count", "external_id"}),
+        #"Removed Columns" = Table.RemoveColumns(#"Expanded Column1",{"id", "resource_state", "upload_id", "start_latlng", "end_latlng", "location_city", "location_state", "photo_count", "map", "total_photo_count", "external_id"}),
         #"Changed Type" = Table.TransformColumnTypes(#"Removed Columns",{{"total_elevation_gain", Int64.Type}, {"elapsed_time", Int64.Type}, {"moving_time", Int64.Type}, {"distance", type number}}),
         #"Renamed Columns" = Table.RenameColumns(#"Changed Type",{{"start_date", "start_datetime"}}),
         #"Duplicated Column" = Table.DuplicateColumn(#"Renamed Columns", "start_datetime", "start_datetime - Copy"),
@@ -117,9 +119,12 @@ StravaData.NavTable = () as table =>
         #"Changed Typedt" = Table.TransformColumnTypes(#"Changed Type3",{{"start_datetime", type datetime}}),
         #"Changed Type1t" = Table.TransformColumnTypes(#"Changed Typedt",{{"start_datetime", type time}}),
         #"Duplicated Column2" = Table.RenameColumns(#"Changed Type1t", {{"start_datetime", "start_time"}}),
-        #"Removed Blank Rows" = Table.SelectRows(#"Duplicated Column2", each not List.IsEmpty(List.RemoveMatchingItems(Record.FieldValues(_), {"", null})))
+        #"Removed Blank Rows" = Table.SelectRows(#"Duplicated Column2", each not List.IsEmpty(List.RemoveMatchingItems(Record.FieldValues(_), {"", null}))),
+		#"Expanded athlete" = Table.ExpandRecordColumn(#"Removed Blank Rows", "athlete", {"id"}, {"athlete.id"}),
+		#"Renamed Columns2" = Table.RenameColumns(#"Expanded athlete",{{"athlete.id", "athlete_id"}})
+
 in
-    #"Removed Blank Rows";
+    #"Renamed Columns2";
 
 
 //Parse the Athlete by json
@@ -130,6 +135,19 @@ StravaData.Athlete = (json) =>
         result = Table.Pivot(tableresult, List.Distinct(tableresult[Name]), "Name", "Value")
 in
    result;
+
+StravaData.Gear =
+	let 
+		Source = StravaData.GetObject(activity_uri,"Activities"),
+		#"Removed Columns" = Table.RemoveColumns(Source,{"athlete_id", "name", "distance", "moving_time", "elapsed_time", "total_elevation_gain", "type", "start_time", "start_date", "location_country", "start_latitude", "start_longitude", "achievement_count", "kudos_count", "comment_count", "athlete_count", "trainer", "commute", "manual", "private", "flagged", "average_speed", "max_speed", "average_cadence", "average_temp", "average_watts", "kilojoules", "device_watts", "has_heartrate", "average_heartrate", "max_heartrate", "elev_high", "elev_low", "pr_count", "has_kudoed", "weighted_average_watts", "max_watts"}),
+   in
+		#"Removed Columns1";
+
+StravaData.GetGearFromID = (gearID as text) => 
+	 let
+        Source = Json.Document(Web.Contents(api_uri & gear_uri &"/"& gearID))
+    in
+        Source;
 
 //All of the paging is based off the Tripin Sample https://github.com/Microsoft/DataConnectors/tree/master/samples/TripPin/5-Paging 
 
@@ -164,8 +182,10 @@ StravaData.Page = (url as text, page as number, contentType as text) as nullable
                 else //Determine how to parse the JSON based on the type of content.
                     if(contentType = "Activities") then
                         StravaData.Activities(json) meta [NextPage = page + 1]
-                    else
+                    else if(contentType = "Athlete") then
                         StravaData.Athlete(json) meta [NextPage = page + 1]
+					else 
+						StravaData.Gear(json) meta [NextPage = page + 1]
             else
                 Table.FromRecords({json}) meta [NextPage = null] // turn single record into one item list
     in
