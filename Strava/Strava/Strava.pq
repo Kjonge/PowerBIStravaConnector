@@ -38,6 +38,7 @@ shared Strava.Contents = StravaData.NavTable;
 // Data Source definition
 //
 Strava = [
+    TestConnection = (dataSourcePath) => { "Strava.Contents" },
     Authentication = [
         OAuth = [
             StartLogin = StartLogin,
