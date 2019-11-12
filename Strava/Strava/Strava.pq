@@ -217,7 +217,7 @@ StartLogin = (resourceUrl, state, display) =>
     let
         AuthorizeUrl = "https://www.strava.com/oauth/authorize?" & Uri.BuildQueryString([
             client_id = client_id,
-            scope = "public",
+            scope = "read_all,activity:read_all",
             response_type = "code",
             state = state,
             redirect_uri = redirect_uri])
@@ -235,6 +235,10 @@ FinishLogin = (context, callbackUri, state) =>
         Parts = Uri.Parts(callbackUri)[Query]
     in
         TokenMethod(Parts[code]);
+
+// Called when the access_token has expired, and a refresh_token is available.
+// 
+//Refresh = (resourceUrl, refresh_token) => TokenMethod("refresh_token", "refresh_token", refresh_token);
 
 TokenMethod = (code) =>
     let
